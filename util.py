@@ -2,16 +2,21 @@ __author__ = 'saftophobia'
 
 import matplotlib.pyplot as plt
 import numpy as np
+import time, logging
 
-def draw_image(matrix):
-    plt.matshow(matrix, fignum=100, cmap=plt.cm.gray)
+def draw_image(arr):
+    reshaped = np.reshape(arr, (3, 32, 32))
+    plt.imshow(reshaped.transpose((1,2,0)))
     plt.show()
 
-def draw_image_from_list(list):
-    side = int(np.sqrt(list.size))
-    draw_image(np.reshape(list, (side, side)))
+def shuffle_data(dataset):
+    seed = int(time.time())
+    logging.info("shuffling data with seed: %d" % seed)
 
-def shuffle_data(list):
-    np.random.shuffle(list)
+    r = np.random.RandomState(seed)
+    r.shuffle(dataset.data)
+    r = np.random.RandomState(seed)
+    r.shuffle(dataset.labels)
+
 
 
