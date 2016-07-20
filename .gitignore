@@ -9,6 +9,7 @@ __pycache__/
 #swp(o)
 *.swp
 *.swo
+.idea/
 
 # Distribution / packaging
 .Python
