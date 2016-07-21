@@ -94,4 +94,4 @@ ENV/
 .ropeproject
 
 #data
-./data/*
+data/cifar*
