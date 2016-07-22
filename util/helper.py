@@ -4,26 +4,19 @@ __author__ = 'saftophobia'
 import numpy as np
 import scipy.ndimage
 
-def L1(self, params): return np.sum(np.abs(params))
-def L2(self, params): return np.sum(params ** 2)
-def sigmoid(self, x): return 1 / (1 + np.exp(-x))
-def sigmoid_diff(self, x): return self.sigmoid(x) * (1 - self.sigmoid(x))
-def reLU_soft(self, x): return np.log(1 + np.exp(x)) #log = ln
-def reLU_soft_diff(self,x): return self.sigmoid(x)
+def L1(params): return np.sum(np.abs(params))
+def L2(params): return np.sum(params ** 2)
+def sigmoid(x): return 1 / (1 + np.exp(-x))
+def sigmoid_diff(x): return sigmoid(x) * (1 - sigmoid(x))
+def reLU_soft(x): return np.log(1 + np.exp(x)) #log = ln
+def reLU_soft_diff(x): return sigmoid(x)
 def reLU(x): return np.maximum(0.0, x)
 def reLU_d(x):
     dx = np.zeros(x.shape)
     dx[x > 0] = 1
     return dx
 
-class PoolingMethod:
-    MAX, MEAN = range(2)
-    def pool_operation(self, pixels, method):
-        if method == PoolingMethod.MAX : return np.max(pixels)
-        if method == PoolingMethod.MEAN: return np.mean(pixels)
-
-
-def convolute(input_img, num_of_output_featureMaps, filter_shape, W, b):
+def convolute(input_img, num_of_output_featureMaps, filter_shape, W, b, activation_function):
     """ Return convoluted images
     :param input_img: input has shape (mini_batch_size, prev_layer_stack_size, img_width, img_height)
     :param num_of_output_featureMaps: number of features
@@ -49,13 +42,13 @@ def convolute(input_img, num_of_output_featureMaps, filter_shape, W, b):
 
                 feature_map = feature_map + scipy.ndimage.filters.convolve(image, filter, mode='reflect')
 
-            feature_map_w_bias = feature_map + b[featureMap_num]
+            feature_map_w_bias = activation_function(feature_map) + b[featureMap_num]
             feature_maps[img, featureMap_num, :, : ] = feature_map_w_bias
 
     return feature_maps
 
 
-def subsample(self, input_feature_maps, pool_size, strides = 1, padding = 0, method = PoolingMethod.MEAN):
+def subsample(input_feature_maps, pool_size, strides=1, padding=0, pooling_method=np.max):
     """ Returns pooled images from convolutional filters
     :param input_feature_maps: output of previous convolutional layers e.g 32 img x 16 featureMap x 32 width x 32 height
     :param pool_size: pool size e.g (2,2)
@@ -69,25 +62,22 @@ def subsample(self, input_feature_maps, pool_size, strides = 1, padding = 0, met
     convoluted_filter_width = input_feature_maps.shape[2]
     convoluted_filter_height = input_feature_maps.shape[3]
 
-    pool_filter_width = pool_size.shape[0]
-    pool_filter_height = pool_size.shape[1]
 
-    pooled_img_width  = ((convoluted_filter_width + 2 * padding - pool_filter_width)/strides) + 1
-    pooled_img_height = ((convoluted_filter_height + 2 * padding - pool_filter_height)/strides) + 1
-    if (isinstance(pooled_img_width, int) and isinstance(pooled_img_height, int)):
-        raise Exception("Invalid HyperParameters for subsample Layer ... ")
+    pooled_img_width  = ((convoluted_filter_width + 2 * padding - pool_size)/strides) + 1
+    pooled_img_height = ((convoluted_filter_height + 2 * padding - pool_size)/strides) + 1
+    if not (float(pooled_img_width).is_integer() and float(pooled_img_height).is_integer()):
+        raise Exception("Invalid HyperParameters for subsample Layer! pooled image width/height is %.4f" % pooled_img_width)
 
     pooled_imgs = np.zeros((num_images, convoluted_num_featureMaps, pooled_img_width, pooled_img_height))
 
     for img in range(num_images):
         for conv_filter in range(convoluted_num_featureMaps):
             for row in range(pooled_img_width):
+                r1 = row * pool_size/2
+                r2 = r1  + pool_size/2
                 for column in range(pooled_img_height):
-                    r1 = row * pool_filter_width * strides
-                    r2 = r1  + pool_filter_width
-                    c1 = column * pool_filter_height * strides
-                    c2 = column + pool_filter_height
-                    pixels = input_feature_maps[conv_filter, r1:r2, c1:c2]
-                    pooled_imgs[img, conv_filter, row, column] = PoolingMethod(pixels, method)
-
+                    c1 = column * pool_size/2 * strides
+                    c2 = c1 + pool_size/2
+                    pixels = input_feature_maps[img, conv_filter, r1:r2, c1:c2]
+                    pooled_imgs[img, conv_filter, row, column] = pooling_method(pixels)
     return pooled_imgs
