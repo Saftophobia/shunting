@@ -111,20 +111,25 @@ class FullyConnectedLayer(object):
     def __init__(self, prev_stack_size, output_size):
         self.activation_fn = "ReLU"
         self.output_size = output_size
+        self.prev_stack_size = prev_stack_size
         W_shape = (prev_stack_size, self.output_size)
         self.W = np.random.normal(loc = 0, scale = 1, size = W_shape)
         self.b = np.random.normal(loc = 0, scale = 1, size = output_size)
 
     def forward(self, input):
-        output = np.zeros(input.shape[0], self.output_size)
-        for img in range(input[0]):
-            print np.dot(input[img,], self.W) + self.b
-        return np.dot(self.W, input) + self.b
+        output = np.zeros((input.shape[0], self.output_size))
+        for img in range(input.shape[0]):
+            output[img,] = np.dot(input[img,].flatten(), self.W) + self.b
+
+        return output
+
+
 
 
 class DebugLayer():
     def forward(self, input):
         import matplotlib.pyplot as plt
+        print "input dimensions are " + str(input.shape)
         plt.imshow(input[1,2,])
         plt.show()
 

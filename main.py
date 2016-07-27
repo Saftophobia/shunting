@@ -16,7 +16,7 @@ v = ConvolutionalNeuralNetworks(layers=[
                        mini_batch_size= 64),
         ActivationLayer(),
         PoolingLayer(),
-
+        #DebugLayer(),
         ConvolutionalLayer(num_of_output_featureMaps = 20,
                        prev_layer_stack_size = 16,
                        filter_size = 5,
@@ -24,7 +24,7 @@ v = ConvolutionalNeuralNetworks(layers=[
         ActivationLayer(),
         PoolingLayer(),
 
-        FullyConnectedLayer(prev_stack_size = 20,
+        FullyConnectedLayer(prev_stack_size = 20 * 30 * 30,
                        output_size = 10)
                         ])
 
