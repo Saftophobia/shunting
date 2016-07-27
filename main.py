@@ -2,7 +2,7 @@ __author__ = 'saftophobia'
 
 from network import *
 from data.CIFAR10 import CIFAR10
-from util import util, logger
+from util import logger
 
 dataset = CIFAR10(5)
 

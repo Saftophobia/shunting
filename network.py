@@ -27,7 +27,6 @@ class ConvolutionalNeuralNetworks(object):
 
                 #backward
 
-
                 #update params
 
                 logging.info("Iteration %i, \t batch number: %i completed!" % (iteration, batch_number))
