@@ -25,7 +25,8 @@ v = ConvolutionalNeuralNetworks(layers=[
         PoolingLayer(),
 
         FullyConnectedLayer(prev_stack_size = 20 * 30 * 30,
-                       output_size = 10)
+                       output_size = 10),
+        SoftMaxLayer()
                         ])
 
 

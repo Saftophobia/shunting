@@ -13,7 +13,7 @@ class ConvolutionalLayer(object):
         W_shape = (prev_layer_stack_size, num_of_output_featureMaps, filter_size, filter_size)
         self.W = np.random.normal(loc = 0, scale = 1, size = W_shape) # random bias for each filter! loc = mean of the distribution, scale = standard-deviation
         self.b = np.random.normal(loc = 0, scale = 1, size = num_of_output_featureMaps) # random bias for each filter! loc = mean of the distribution, scale = standard-deviation
-
+        print self.W
 
     def forward(self, input_img):
         """ Return convoluted images
@@ -123,7 +123,18 @@ class FullyConnectedLayer(object):
 
         return output
 
+class SoftMaxLayer(object):
+    def __init__(self): pass
+    def forward(self, input):
+        output = np.zeros(input.shape)
+        for img in range(input.shape[0]):
 
+            print input[img,] - np.max(input[img,])
+            e = np.exp(input[img,] - np.max(input[img,])) # to reduce overflow
+            output[img, ] =  e/np.sum(e)
+
+        print output
+        return output
 
 
 class DebugLayer():
