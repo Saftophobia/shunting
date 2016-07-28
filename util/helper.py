@@ -12,7 +12,7 @@ def sigmoid_diff(x): return sigmoid(x) * (1 - sigmoid(x))
 def reLU_soft(x): return np.log(1 + np.exp(x)) #log = ln
 def reLU_soft_diff(x): return sigmoid(x)
 def reLU(x): return np.maximum(0.0, x)
-def reLU_d(x):
+def reLU_diff(x):
     dx = np.zeros(x.shape)
     dx[x > 0] = 1
     return dx

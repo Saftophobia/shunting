@@ -23,15 +23,28 @@ class ConvolutionalNeuralNetworks(object):
                 #forward
                 for layer in self.layers:
                     data_batch = layer.forward(data_batch)
-                f_output = data_batch
+                f_predicted = data_batch
 
-                #backward
+                #calculate misclassifications in the softmaxLayer
+                sgd = self.layers[-1].backward(self.format_labels(labels_batch, f_predicted), f_predicted)
+
+                #backward - pass error to other layers
+                for layer in reversed(self.layers[:-1]):
+                    sgd = layer.backward(sgd)
+
 
                 #update params
 
                 logging.info("Iteration %i, \t batch number: %i completed!" % (iteration, batch_number))
 
+                error = self.calculate_error(labels_batch, f_predicted)
             #logging.info("Iteration %i, loss %.3f" % (iteration, loss))
 
-    def calculate_error(self, output, predicted): print np.sum((output-predicted) ** 2)
+    def format_labels(self, labels, predicted):
+        modified_labels = np.zeros(predicted.shape)
+        for record in range(labels.shape[0]):
+            modified_labels[record, labels[record] - 1] = 1 #change label 3 to (0,0,1,0 .. )
+
+
+        return modified_labels
 

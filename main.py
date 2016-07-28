@@ -4,12 +4,13 @@ from network import *
 from data.CIFAR10 import CIFAR10
 from util import logger
 
-dataset = CIFAR10(5)
+dataset = CIFAR10(1)
 
 #print dataset.TAGS[dataset.labels[1]]
 #util.draw_image(dataset.data[1])
 
-v = ConvolutionalNeuralNetworks(layers=[
+v = ConvolutionalNeuralNetworks(mini_batch_size = 32,
+                                layers=[
         ConvolutionalLayer(num_of_output_featureMaps = 16,
                        prev_layer_stack_size = 3,
                        filter_size = 5,
@@ -24,6 +25,7 @@ v = ConvolutionalNeuralNetworks(layers=[
         ActivationLayer(),
         PoolingLayer(),
 
+        FlattenLayer(),
         FullyConnectedLayer(prev_stack_size = 20 * 30 * 30,
                        output_size = 10),
         SoftMaxLayer()
