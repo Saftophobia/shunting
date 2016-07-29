@@ -1,10 +1,15 @@
 __author__ = 'saftophobia'
 import numpy as np
+import logging
 from util.helper import *
 
-class ConvolutionalLayer(object):
+class LearningLayer():
+    def forward(self, input): raise NotImplementedError()
+    def backward(self, sgd): raise NotImplementedError()
+    def updateWeights(self, learning_rate, momentum, weight_decay): raise NotImplementedError()
+
+class ConvolutionalLayer(LearningLayer):
     def __init__(self, num_of_output_featureMaps, prev_layer_stack_size, filter_size, mini_batch_size):
-        self.filter_shape = 0
         self.num_of_output_featureMaps = num_of_output_featureMaps
         self.prev_layer_stack_size = prev_layer_stack_size # 6 layers x 16x16
         self.filter_size = filter_size
@@ -15,6 +20,7 @@ class ConvolutionalLayer(object):
         self.b = np.random.normal(loc = 0, scale = 0.1, size = num_of_output_featureMaps) # random bias for each filter! loc = mean of the distribution, scale = standard-deviation
 
     def forward(self, input_img):
+        logging.info("Convolutional Layer: forward")
         """ Return convoluted images
         :param input_img: input has shape (mini_batch_size, prev_layer_stack_size, img_width, img_height)
         :param num_of_output_featureMaps: number of features
@@ -22,6 +28,8 @@ class ConvolutionalLayer(object):
         :param b: bias array (shared) size = num_of_features
         :return feature_maps: convoluted images with shape (num_images x num_of_features x input_width x input high) e.g 100x 16x32x32
         """
+        self.input = input_img
+
         num_input_pooled_imgs = input_img.shape[0] # or channels if it's the first layer
         prev_layer_stack_size = input_img.shape[1]
         input_img_width = input_img.shape[2]
@@ -45,18 +53,50 @@ class ConvolutionalLayer(object):
         return feature_maps
 
 
-    def backward(self): pass
+    def backward(self, prev_sgd):
+        #print prev_sgd.shape #32,20,31,31
+        #print self.input.shape #32,16,31,31
+        logging.info("Convolutional Layer: backward")
+        self.d_W = np.zeros(self.W.shape)
+        self.d_b = np.zeros(self.b.shape)
 
+        num_input_pooled_imgs = prev_sgd.shape[0] # 32
+        prev_layer_stack_size = self.input.shape[1] #16
+        input_img_width = prev_sgd.shape[2] #31
+        input_img_height = prev_sgd.shape[3] #31
+
+        new_sgd = np.zeros(self.input.shape) #32,16,31,31
+
+        for img in range(num_input_pooled_imgs):
+            for featureMap_num in range(self.input.shape[1]): # 0 - 15
+                feature_map = np.zeros((input_img_width, input_img_height))
+
+                for input_num in range(prev_layer_stack_size): # 0 - 15
+                    sgd = prev_sgd[img, input_num, : , :]
+                    image = self.input[img, input_num, : , :]
+                    filter = self.W[input_num, featureMap_num, ] #filter for each pooled image in the stack
+
+                    self.dW += scipy.ndimage.filters.convolve(filter, sgd, mode='reflect') #conv
+                    new_sgd += scipy.ndimage.filters.convolve(image, sgd, mode='reflect')
+
+        self.d_b = np.sum(prev_sgd, axis=(0, 2, 3)) / (num_input_pooled_imgs)
+        return new_sgd/num_input_pooled_imgs
+
+    def updateWeights(self, learning_rate = 0.1, momentum = 0, weight_decay = 0.001):
+        self.W += learning_rate * self.d_W - weight_decay * self.W + momentum * self.W
+        self.b += learning_rate * self.d_b
 
 class ActivationLayer(object):
     def __init__(self, function = reLU):
         self.function = function
 
     def forward(self, input):
+        logging.info("Activation Layer: forward")
         self.input = input
         return self.function(input)
 
     def backward(self, prev_sgd):
+        logging.info("Activation Layer: backward")
         if (self.function == reLU): return prev_sgd * reLU_diff(self.input)
         elif (self.function == sigmoid): return prev_sgd * sigmoid_diff(self.input)
         elif (self.function == reLU_soft): return prev_sgd * reLU_soft_diff(self.input)
@@ -71,6 +111,8 @@ class PoolingLayer(object):
         self.pooling_method = pooling_method
 
     def forward(self, input_feature_maps):
+        logging.info("Pooling Layer: forward")
+
         #print input_feature_maps.shape #(32, 16, 32, 32)
         """ Returns pooled images from convolutional filters
         :param input_feature_maps: output of previous convolutional layers e.g 32 img x 16 featureMap x 32 width x 32 height
@@ -94,7 +136,7 @@ class PoolingLayer(object):
 
         pooled_imgs = np.zeros((num_images, convoluted_num_featureMaps, pooled_img_width, pooled_img_height))
 
-        maximum_mean_map = np.zeros(self.input.shape)
+        self.maximum_mean_map = np.zeros(self.input.shape)
 
         for img in range(num_images):
             for conv_filter in range(convoluted_num_featureMaps):
@@ -109,18 +151,19 @@ class PoolingLayer(object):
                         if self.pooling_method == np.mean:
                             mean = np.sum(pixels, dtype='double')
                             if mean != 0:
-                                maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = np.array(pixels)/np.sum(pixels, dtype='double')
+                                self.maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = np.array(pixels)/np.sum(pixels, dtype='double')
                             else:
-                                maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = np.array(pixels)
+                                self.maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = np.array(pixels)
                         else:
                             pixels_zeros = np.zeros_like(pixels)
                             pixels_zeros[np.arange(len(pixels)), pixels.argmax(1)] = 1
-                            maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = pixels_zeros
+                            self.maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = pixels_zeros
 
                         pooled_imgs[img, conv_filter, row, column] = self.pooling_method(pixels) #mean/max happens here
         return pooled_imgs
 
     def backward(self, sgd):
+        logging.info("Pooling Layer: backward")
 
         new_sgd = np.zeros(self.input.shape)
 
@@ -136,17 +179,13 @@ class PoolingLayer(object):
             for conv_filter in range(pool_num_featureMaps):
                 for row in range(pool_filter_width):
                     for column in range(pool_filter_height):
-                        new_sgd[img, conv_filter, row, column] = sgd[img, conv_filter, row, column] #mean/max happens here
+                        for window_width in range(self.pool_size):
+                            for window_height in range(self.pool_size):
+                                new_sgd[img,conv_filter, row + window_width , column + window_height] += sgd[img, conv_filter, row, column] \
+                                                                                                        * self.maximum_mean_map[img,conv_filter, row + window_width , column + window_height]
+        return new_sgd
 
-        #print sgd.shape 32,20,30,30
-        if self.pooling_method == np.mean:
-            # distribute the error over the pixels
-            pass
-        else:
-            # assign the error to the max pixel
-            pass
-
-class FullyConnectedLayer(object):
+class FullyConnectedLayer(LearningLayer):
     def __init__(self, prev_stack_size, output_size, weight_decay = 0.01):
         self.activation_fn = "ReLU"
         self.output_size = output_size
@@ -159,19 +198,30 @@ class FullyConnectedLayer(object):
         self.b = np.zeros(output_size)
 
     def forward(self, input):
+        logging.info("Fully Connected Layer: forward")
+
         self.input = input
         return np.dot(input, self.W) + self.b
 
     def backward(self, prev_sgd):
-        self.old_weights = self.W
+        logging.info("Fully Connected Layer: backward")
 
-        self.W += np.dot(self.input.T, prev_sgd)/prev_sgd.shape[0] - self.weight_decay*self.W
-        self.b += np.mean(prev_sgd, axis=0)
+        self.old_weights = self.W
+        self.d_W = np.zeros(self.W.shape)
+        self.d_b = np.zeros(self.b.shape)
+
+        self.d_W += np.dot(self.input.T, prev_sgd)/prev_sgd.shape[0] - self.weight_decay*self.W
+        self.d_b += np.mean(prev_sgd, axis=0)
         return np.dot(prev_sgd, self.old_weights.T)
 
+    def updateWeights(self, learning_rate, momentum, weight_decay):
+        self.W += learning_rate * self.d_W - weight_decay * self.W + momentum * self.W
+        self.b += learning_rate * self.d_b
 
 class SoftMaxLayer(object):
     def forward(self, input):
+        logging.info("Softmax Layer: forward")
+
         output = np.zeros(input.shape)
         for img in range(input.shape[0]):
             e = np.exp(input[img,] - np.max(input[img,])) # to reduce overflow
@@ -187,6 +237,8 @@ class SoftMaxLayer(object):
         :param predicted: 32 img x 10 classes (each class has a value between 0 and 1)
         :return: 32 img x 10 derivatives
         """
+        logging.info("Softmax Layer: backward")
+
         return - (real - predicted)
 
 

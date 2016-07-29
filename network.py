@@ -32,9 +32,11 @@ class ConvolutionalNeuralNetworks(object):
                 for layer in reversed(self.layers[:-1]):
                     sgd = layer.backward(sgd)
 
-
                 #update params
-
+                for layer in self.layers:
+                    if isinstance(layer, LearningLayer):
+                        layer.updateWeights(learning_rate= 0.1, momentum= 0, weight_decay= 0.01)
+                        
                 logging.info("Iteration %i, \t batch number: %i completed!" % (iteration, batch_number))
 
                 error = self.calculate_error(labels_batch, f_predicted)
