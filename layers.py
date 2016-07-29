@@ -20,7 +20,7 @@ class ConvolutionalLayer(LearningLayer):
         self.b = np.random.normal(loc = 0, scale = 0.1, size = num_of_output_featureMaps) # random bias for each filter! loc = mean of the distribution, scale = standard-deviation
 
     def forward(self, input_img):
-        logging.info("Convolutional Layer: forward")
+        #logging.info("\tConvolutional Layer: forward")
         """ Return convoluted images
         :param input_img: input has shape (mini_batch_size, prev_layer_stack_size, img_width, img_height)
         :param num_of_output_featureMaps: number of features
@@ -29,6 +29,7 @@ class ConvolutionalLayer(LearningLayer):
         :return feature_maps: convoluted images with shape (num_images x num_of_features x input_width x input high) e.g 100x 16x32x32
         """
         self.input = input_img
+
 
         num_input_pooled_imgs = input_img.shape[0] # or channels if it's the first layer
         prev_layer_stack_size = input_img.shape[1]
@@ -56,7 +57,7 @@ class ConvolutionalLayer(LearningLayer):
     def backward(self, prev_sgd):
         #print prev_sgd.shape #32,20,31,31
         #print self.input.shape #32,16,31,31
-        logging.info("Convolutional Layer: backward")
+        #logging.info("\tConvolutional Layer: backward")
         self.d_W = np.zeros(self.W.shape)
         self.d_b = np.zeros(self.b.shape)
 
@@ -76,27 +77,29 @@ class ConvolutionalLayer(LearningLayer):
                     image = self.input[img, input_num, : , :]
                     filter = self.W[input_num, featureMap_num, ] #filter for each pooled image in the stack
 
-                    self.dW += scipy.ndimage.filters.convolve(filter, sgd, mode='reflect') #conv
+                    self.d_W += scipy.ndimage.filters.convolve(filter, sgd, mode='reflect')
+                                                #np.fliplr(filter), sgd, mode='reflect') #conv
                     new_sgd += scipy.ndimage.filters.convolve(image, sgd, mode='reflect')
 
         self.d_b = np.sum(prev_sgd, axis=(0, 2, 3)) / (num_input_pooled_imgs)
         return new_sgd/num_input_pooled_imgs
 
     def updateWeights(self, learning_rate = 0.1, momentum = 0, weight_decay = 0.001):
-        self.W += learning_rate * self.d_W - weight_decay * self.W + momentum * self.W
+        self.W += learning_rate * self.d_W - weight_decay * self.W #+ momentum * self.d_W
         self.b += learning_rate * self.d_b
+
 
 class ActivationLayer(object):
     def __init__(self, function = reLU):
         self.function = function
 
     def forward(self, input):
-        logging.info("Activation Layer: forward")
+        #logging.info("\tActivation Layer: forward")
         self.input = input
         return self.function(input)
 
     def backward(self, prev_sgd):
-        logging.info("Activation Layer: backward")
+        #logging.info("\tActivation Layer: backward")
         if (self.function == reLU): return prev_sgd * reLU_diff(self.input)
         elif (self.function == sigmoid): return prev_sgd * sigmoid_diff(self.input)
         elif (self.function == reLU_soft): return prev_sgd * reLU_soft_diff(self.input)
@@ -111,7 +114,7 @@ class PoolingLayer(object):
         self.pooling_method = pooling_method
 
     def forward(self, input_feature_maps):
-        logging.info("Pooling Layer: forward")
+        #logging.info("\tPooling Layer: forward")
 
         #print input_feature_maps.shape #(32, 16, 32, 32)
         """ Returns pooled images from convolutional filters
@@ -163,7 +166,7 @@ class PoolingLayer(object):
         return pooled_imgs
 
     def backward(self, sgd):
-        logging.info("Pooling Layer: backward")
+        #logging.info("\tPooling Layer: backward")
 
         new_sgd = np.zeros(self.input.shape)
 
@@ -198,13 +201,13 @@ class FullyConnectedLayer(LearningLayer):
         self.b = np.zeros(output_size)
 
     def forward(self, input):
-        logging.info("Fully Connected Layer: forward")
+        #logging.info("\tFully Connected Layer: forward")
 
         self.input = input
         return np.dot(input, self.W) + self.b
 
     def backward(self, prev_sgd):
-        logging.info("Fully Connected Layer: backward")
+        #logging.info("\tFully Connected Layer: backward")
 
         self.old_weights = self.W
         self.d_W = np.zeros(self.W.shape)
@@ -220,7 +223,7 @@ class FullyConnectedLayer(LearningLayer):
 
 class SoftMaxLayer(object):
     def forward(self, input):
-        logging.info("Softmax Layer: forward")
+        #logging.info("\tSoftmax Layer: forward")
 
         output = np.zeros(input.shape)
         for img in range(input.shape[0]):
@@ -237,7 +240,7 @@ class SoftMaxLayer(object):
         :param predicted: 32 img x 10 classes (each class has a value between 0 and 1)
         :return: 32 img x 10 derivatives
         """
-        logging.info("Softmax Layer: backward")
+        #logging.info("\tSoftmax Layer: backward")
 
         return - (real - predicted)
 
