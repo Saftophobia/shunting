@@ -2,263 +2,281 @@ __author__ = 'saftophobia'
 import numpy as np
 import logging
 from util.helper import *
+import theano
+import theano.tensor as T
+from theano.tensor.signal import downsample
+from theano.tensor.nnet import conv2d
 
-class LearningLayer():
-    def forward(self, input): raise NotImplementedError()
-    def backward(self, sgd): raise NotImplementedError()
-    def updateWeights(self, learning_rate, momentum, weight_decay): raise NotImplementedError()
 
-class ConvolutionalLayer(LearningLayer):
-    def __init__(self, num_of_output_featureMaps, prev_layer_stack_size, filter_size, mini_batch_size):
-        self.num_of_output_featureMaps = num_of_output_featureMaps
-        self.prev_layer_stack_size = prev_layer_stack_size # 6 layers x 16x16
-        self.filter_size = filter_size
-        self.mini_batch_size = mini_batch_size
+class LeNetConvPoolLayer(object):
+    """Pool Layer of a convolutional network """
 
-        W_shape = (prev_layer_stack_size, num_of_output_featureMaps, filter_size, filter_size)
-        self.W = np.random.normal(loc = 0, scale = 0.1, size = W_shape) # random bias for each filter! loc = mean of the distribution, scale = standard-deviation
-        self.b = np.random.normal(loc = 0, scale = 0.1, size = num_of_output_featureMaps) # random bias for each filter! loc = mean of the distribution, scale = standard-deviation
-
-    def forward(self, input_img):
-        #logging.info("\tConvolutional Layer: forward")
-        """ Return convoluted images
-        :param input_img: input has shape (mini_batch_size, prev_layer_stack_size, img_width, img_height)
-        :param num_of_output_featureMaps: number of features
-        :param W: weight ndarray (shared) size (prev_layer_stack_size, num_of_output_featureMaps, filter_size, filter_size)
-        :param b: bias array (shared) size = num_of_features
-        :return feature_maps: convoluted images with shape (num_images x num_of_features x input_width x input high) e.g 100x 16x32x32
+    def __init__(self, rng, input, filter_shape, poolstrides, image_shape, poolsize=(2, 2), activation_fn = T.tanh):
         """
-        self.input = input_img
+        Allocate a LeNetConvPoolLayer with shared variable internal parameters.
 
+        :type rng: numpy.random.RandomState
+        :param rng: a random number generator used to initialize weights
 
-        num_input_pooled_imgs = input_img.shape[0] # or channels if it's the first layer
-        prev_layer_stack_size = input_img.shape[1]
-        input_img_width = input_img.shape[2]
-        input_img_height = input_img.shape[3]
+        :type input: theano.tensor.dtensor4
+        :param input: symbolic image tensor, of shape image_shape
 
-        feature_maps = np.zeros((num_input_pooled_imgs, self.num_of_output_featureMaps, input_img_width, input_img_height))
+        :type filter_shape: tuple or list of length 4
+        :param filter_shape: (number of filters, num input feature maps,
+                              filter height, filter width)
 
-        for img in range(num_input_pooled_imgs):
-            for featureMap_num in range(self.num_of_output_featureMaps):
-                feature_map = np.zeros((input_img_width, input_img_height))
+        :type image_shape: tuple or list of length 4
+        :param image_shape: (batch size, num input feature maps,
+                             image height, image width)
 
-                for input_num in range(prev_layer_stack_size):
-                    image = input_img[img, input_num, : , :]
-                    filter = self.W[input_num, featureMap_num, ] #filter for each pooled image in the stack
+        :type poolsize: tuple or list of length 2
+        :param poolsize: the downsampling (pooling) factor (#rows, #cols)
+        """
 
-                    feature_map = feature_map + scipy.ndimage.filters.convolve(image, filter, mode='reflect') #conv
-
-                feature_map_w_bias = feature_map + self.b[featureMap_num]
-                feature_maps[img, featureMap_num, :, : ] = feature_map_w_bias
-
-        return feature_maps
-
-
-    def backward(self, prev_sgd):
-        #print prev_sgd.shape #32,20,31,31
-        #print self.input.shape #32,16,31,31
-        #logging.info("\tConvolutional Layer: backward")
-        self.d_W = np.zeros(self.W.shape)
-        self.d_b = np.zeros(self.b.shape)
-
-        num_input_pooled_imgs = prev_sgd.shape[0] # 32
-        prev_layer_stack_size = self.input.shape[1] #16
-        input_img_width = prev_sgd.shape[2] #31
-        input_img_height = prev_sgd.shape[3] #31
-
-        new_sgd = np.zeros(self.input.shape) #32,16,31,31
-
-        for img in range(num_input_pooled_imgs):
-            for featureMap_num in range(self.input.shape[1]): # 0 - 15
-                feature_map = np.zeros((input_img_width, input_img_height))
-
-                for input_num in range(prev_layer_stack_size): # 0 - 15
-                    sgd = prev_sgd[img, input_num, : , :]
-                    image = self.input[img, input_num, : , :]
-                    filter = self.W[input_num, featureMap_num, ] #filter for each pooled image in the stack
-
-                    self.d_W += scipy.ndimage.filters.convolve(filter, sgd, mode='reflect')
-                                                #np.fliplr(filter), sgd, mode='reflect') #conv
-                    new_sgd += scipy.ndimage.filters.convolve(image, sgd, mode='reflect')
-
-        self.d_b = np.sum(prev_sgd, axis=(0, 2, 3)) / (num_input_pooled_imgs)
-        return new_sgd/num_input_pooled_imgs
-
-    def updateWeights(self, learning_rate = 0.1, momentum = 0, weight_decay = 0.001):
-        self.W += learning_rate * self.d_W - weight_decay * self.W #+ momentum * self.d_W
-        self.b += learning_rate * self.d_b
-
-
-class ActivationLayer(object):
-    def __init__(self, function = reLU):
-        self.function = function
-
-    def forward(self, input):
-        #logging.info("\tActivation Layer: forward")
+        assert image_shape[1] == filter_shape[1]
         self.input = input
-        return self.function(input)
 
-    def backward(self, prev_sgd):
-        #logging.info("\tActivation Layer: backward")
-        if (self.function == reLU): return prev_sgd * reLU_diff(self.input)
-        elif (self.function == sigmoid): return prev_sgd * sigmoid_diff(self.input)
-        elif (self.function == reLU_soft): return prev_sgd * reLU_soft_diff(self.input)
+        # there are "num input feature maps * filter height * filter width"
+        # inputs to each hidden unit
+        fan_in = np.prod(filter_shape[1:])
+        # each unit in the lower layer receives a gradient from:
+        # "num output feature maps * filter height * filter width" /
+        #   pooling size
+        fan_out = (filter_shape[0] * np.prod(filter_shape[2:]) //
+                   np.prod(poolsize))
+        # initialize weights with random weights
+        W_bound = np.sqrt(6. / (fan_in + fan_out))
+        self.W = theano.shared(
+            np.asarray(
+                rng.uniform(low=-W_bound, high=W_bound, size=filter_shape),
+                dtype=theano.config.floatX
+            ),
+            borrow=True
+        )
 
+        # the bias is a 1D tensor -- one bias per output feature map
+        b_values = np.zeros((filter_shape[0],), dtype=theano.config.floatX)
+        self.b = theano.shared(value=b_values, borrow=True)
 
-class PoolingLayer(object):
-    def __init__(self, pool_size = 2, strides = 1, padding = 0, pooling_method = np.mean):
-        self.size = 0
-        self.pool_size = pool_size
-        self.strides = strides
-        self.padding = padding
-        self.pooling_method = pooling_method
+        # convolve input feature maps with filters
+        conv_out = conv2d(
+            input=input,
+            filters=self.W,
+            filter_shape=filter_shape,
+            image_shape=image_shape
+        )
 
-    def forward(self, input_feature_maps):
-        #logging.info("\tPooling Layer: forward")
+        # pool each feature map individually, using maxpooling
+        pooled_out = downsample.max_pool_2d(
+            input=conv_out,
+            ds=poolsize,
+            st=poolstrides,
+            ignore_border=True
+        )
 
-        #print input_feature_maps.shape #(32, 16, 32, 32)
-        """ Returns pooled images from convolutional filters
-        :param input_feature_maps: output of previous convolutional layers e.g 32 img x 16 featureMap x 32 width x 32 height
-        :param pool_size: pool size e.g (2,2)
-        :param strides: how many steps the filter should take in every iteration
-        :param padding: start from inner frame of the image #NOT_IMPLEMENTED
-        :param method: pooling methid is either PoolingMethods.MEAN or PoolingMethods.MAX
-        :return pooled_imgs: pooled images e.g 32img x 6 layers x 16x16
-        """
-        self.input = input_feature_maps
+        # add the bias term. Since the bias is a vector (1D array), we first
+        # reshape it to a tensor of shape (1, n_filters, 1, 1). Each bias will
+        # thus be broadcasted across mini-batches and feature map
+        # width & height
+        self.output = activation_fn(pooled_out + self.b.dimshuffle('x', 0, 'x', 'x'))
 
-        num_images = input_feature_maps.shape[0]
-        convoluted_num_featureMaps = input_feature_maps.shape[1]
-        convoluted_filter_width = input_feature_maps.shape[2]
-        convoluted_filter_height = input_feature_maps.shape[3]
+        # store parameters of this layer
+        self.params = [self.W, self.b]
 
-        pooled_img_width  = ((convoluted_filter_width + 2 * self.padding - self.pool_size)/self.strides) + 1
-        pooled_img_height = ((convoluted_filter_height + 2 * self.padding - self.pool_size)/self.strides) + 1
-        if not (float(pooled_img_width).is_integer() and float(pooled_img_height).is_integer()):
-            raise Exception("Invalid HyperParameters for subsample Layer! pooled image width/height is %.4f" % pooled_img_width)
-
-        pooled_imgs = np.zeros((num_images, convoluted_num_featureMaps, pooled_img_width, pooled_img_height))
-
-        self.maximum_mean_map = np.zeros(self.input.shape)
-
-        for img in range(num_images):
-            for conv_filter in range(convoluted_num_featureMaps):
-                for row in range(pooled_img_width):
-                    r1 = row * self.strides
-                    r2 = r1  + self.pool_size
-                    for column in range(pooled_img_height):
-                        c1 = column * self.strides
-                        c2 = c1 + self.pool_size
-                        pixels = input_feature_maps[img, conv_filter, r1:r2, c1:c2]
-
-                        if self.pooling_method == np.mean:
-                            mean = np.sum(pixels, dtype='double')
-                            if mean != 0:
-                                self.maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = np.array(pixels)/np.sum(pixels, dtype='double')
-                            else:
-                                self.maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = np.array(pixels)
-                        else:
-                            pixels_zeros = np.zeros_like(pixels)
-                            pixels_zeros[np.arange(len(pixels)), pixels.argmax(1)] = 1
-                            self.maximum_mean_map[img, conv_filter, r1:r2, c1:c2] = pixels_zeros
-
-                        pooled_imgs[img, conv_filter, row, column] = self.pooling_method(pixels) #mean/max happens here
-        return pooled_imgs
-
-    def backward(self, sgd):
-        #logging.info("\tPooling Layer: backward")
-
-        new_sgd = np.zeros(self.input.shape)
-
-       # print sgd.shape  (32, 20, 30, 30)
-       # print new_sgd.shape (32, 20, 31, 31)
-
-        num_images = sgd.shape[0]
-        pool_num_featureMaps = sgd.shape[1]
-        pool_filter_width = sgd.shape[2]
-        pool_filter_height = sgd.shape[3]
-
-        for img in range(num_images):
-            for conv_filter in range(pool_num_featureMaps):
-                for row in range(pool_filter_width):
-                    for column in range(pool_filter_height):
-                        for window_width in range(self.pool_size):
-                            for window_height in range(self.pool_size):
-                                new_sgd[img,conv_filter, row + window_width , column + window_height] += sgd[img, conv_filter, row, column] \
-                                                                                                        * self.maximum_mean_map[img,conv_filter, row + window_width , column + window_height]
-        return new_sgd
-
-class FullyConnectedLayer(LearningLayer):
-    def __init__(self, prev_stack_size, output_size, weight_decay = 0.01):
-        self.activation_fn = "ReLU"
-        self.output_size = output_size
-        self.prev_stack_size = prev_stack_size
-
-        self.weight_decay = weight_decay
-
-        W_shape = (prev_stack_size, self.output_size)
-        self.W = np.random.normal(loc = 0, scale = 0.1, size = W_shape)
-        self.b = np.zeros(output_size)
-
-    def forward(self, input):
-        #logging.info("\tFully Connected Layer: forward")
-
+        # keep track of model input
         self.input = input
-        return np.dot(input, self.W) + self.b
-
-    def backward(self, prev_sgd):
-        #logging.info("\tFully Connected Layer: backward")
-
-        self.old_weights = self.W
-        self.d_W = np.zeros(self.W.shape)
-        self.d_b = np.zeros(self.b.shape)
-
-        self.d_W += np.dot(self.input.T, prev_sgd)/prev_sgd.shape[0] - self.weight_decay*self.W
-        self.d_b += np.mean(prev_sgd, axis=0)
-        return np.dot(prev_sgd, self.old_weights.T)
-
-    def updateWeights(self, learning_rate, momentum, weight_decay):
-        self.W += learning_rate * self.d_W - weight_decay * self.W + momentum * self.W
-        self.b += learning_rate * self.d_b
-
-class SoftMaxLayer(object):
-    def forward(self, input):
-        #logging.info("\tSoftmax Layer: forward")
-
-        output = np.zeros(input.shape)
-        for img in range(input.shape[0]):
-            e = np.exp(input[img,] - np.max(input[img,])) # to reduce overflow
-            output[img, ] =  e/np.sum(e)
-
-        return output
 
 
-    def backward(self, real, predicted):
+class HiddenLayer(object):
+    def __init__(self, rng, input, n_in, n_out, W=None, b=None,
+                 activation=T.tanh):
         """
-        derivative of 0.5(y-y')^2
-        :param real: 32 img x 10 classes (with one class equal 1)
-        :param predicted: 32 img x 10 classes (each class has a value between 0 and 1)
-        :return: 32 img x 10 derivatives
+        Typical hidden layer of a MLP: units are fully-connected and have
+        sigmoidal activation function. Weight matrix W is of shape (n_in,n_out)
+        and the bias vector b is of shape (n_out,).
+
+        NOTE : The nonlinearity used here is tanh
+
+        Hidden unit activation is given by: tanh(dot(input,W) + b)
+
+        :type rng: numpy.random.RandomState
+        :param rng: a random number generator used to initialize weights
+
+        :type input: theano.tensor.dmatrix
+        :param input: a symbolic tensor of shape (n_examples, n_in)
+
+        :type n_in: int
+        :param n_in: dimensionality of input
+
+        :type n_out: int
+        :param n_out: number of hidden units
+
+        :type activation: theano.Op or function
+        :param activation: Non linearity to be applied in the hidden
+                           layer
         """
-        #logging.info("\tSoftmax Layer: backward")
-
-        return - (real - predicted)
-
-
-class FlattenLayer(object):
-    def forward(self, input):
         self.input = input
-        return np.reshape(input, (input.shape[0], -1)) #keep first dim and -1 (flatten) the rest
+        # end-snippet-1
 
-    def backward(self, prev_sgd): return np.reshape(prev_sgd, self.input.shape)
+        # `W` is initialized with `W_values` which is uniformely sampled
+        # from sqrt(-6./(n_in+n_hidden)) and sqrt(6./(n_in+n_hidden))
+        # for tanh activation function
+        # the output of uniform if converted using asarray to dtype
+        # theano.config.floatX so that the code is runable on GPU
+        # Note : optimal initialization of weights is dependent on the
+        #        activation function used (among other things).
+        #        For example, results presented in [Xavier10] suggest that you
+        #        should use 4 times larger initial weights for sigmoid
+        #        compared to tanh
+        #        We have no info for other function, so we use the same as
+        #        tanh.
+        if W is None:
+            W_values = np.asarray(
+                rng.uniform(
+                    low=-np.sqrt(6. / (n_in + n_out)),
+                    high=np.sqrt(6. / (n_in + n_out)),
+                    size=(n_in, n_out)
+                ),
+                dtype=theano.config.floatX
+            )
+            if activation == theano.tensor.nnet.sigmoid:
+                W_values *= 4
 
+            W = theano.shared(value=W_values, name='W', borrow=True)
 
-class DebugLayer(object):
-    def forward(self, input):
-        import matplotlib.pyplot as plt
-        print "input dimensions are " + str(input.shape)
-        plt.imshow(input[1,2,])
-        plt.show()
+        if b is None:
+            b_values = np.zeros((n_out,), dtype=theano.config.floatX)
+            b = theano.shared(value=b_values, name='b', borrow=True)
 
-    def backward(self, prev_sgd): return prev_sgd #for debugging, pass sgd to next layer
+        self.W = W
+        self.b = b
 
+        lin_output = T.dot(input, self.W) + self.b
+        self.output = (
+            lin_output if activation is None
+            else activation(lin_output)
+        )
+        # parameters of the model
+        self.params = [self.W, self.b]
+
+class LogisticRegression(object):
+    """Multi-class Logistic Regression Class
+
+    The logistic regression is fully described by a weight matrix :math:`W`
+    and bias vector :math:`b`. Classification is done by projecting data
+    points onto a set of hyperplanes, the distance to which is used to
+    determine a class membership probability.
+    """
+
+    def __init__(self, input, n_in, n_out):
+        """ Initialize the parameters of the logistic regression
+
+        :type input: theano.tensor.TensorType
+        :param input: symbolic variable that describes the input of the
+                      architecture (one minibatch)
+
+        :type n_in: int
+        :param n_in: number of input units, the dimension of the space in
+                     which the datapoints lie
+
+        :type n_out: int
+        :param n_out: number of output units, the dimension of the space in
+                      which the labels lie
+
+        """
+        # start-snippet-1
+        # initialize with 0 the weights W as a matrix of shape (n_in, n_out)
+        self.W = theano.shared(
+            value=np.zeros(
+                (n_in, n_out),
+                dtype=theano.config.floatX
+            ),
+            name='W',
+            borrow=True
+        )
+        # initialize the biases b as a vector of n_out 0s
+        self.b = theano.shared(
+            value=np.zeros(
+                (n_out,),
+                dtype=theano.config.floatX
+            ),
+            name='b',
+            borrow=True
+        )
+
+        # symbolic expression for computing the matrix of class-membership
+        # probabilities
+        # Where:
+        # W is a matrix where column-k represent the separation hyperplane for
+        # class-k
+        # x is a matrix where row-j  represents input training sample-j
+        # b is a vector where element-k represent the free parameter of
+        # hyperplane-k
+        self.p_y_given_x = T.nnet.softmax(T.dot(input, self.W) + self.b)
+
+        # symbolic description of how to compute prediction as class whose
+        # probability is maximal
+        self.y_pred = T.argmax(self.p_y_given_x, axis=1)
+        # end-snippet-1
+
+        # parameters of the model
+        self.params = [self.W, self.b]
+
+        # keep track of model input
+        self.input = input
+
+    def negative_log_likelihood(self, y):
+        """Return the mean of the negative log-likelihood of the prediction
+        of this model under a given target distribution.
+
+        .. math::
+
+            \frac{1}{|\mathcal{D}|} \mathcal{L} (\theta=\{W,b\}, \mathcal{D}) =
+            \frac{1}{|\mathcal{D}|} \sum_{i=0}^{|\mathcal{D}|}
+                \log(P(Y=y^{(i)}|x^{(i)}, W,b)) \\
+            \ell (\theta=\{W,b\}, \mathcal{D})
+
+        :type y: theano.tensor.TensorType
+        :param y: corresponds to a vector that gives for each example the
+                  correct label
+
+        Note: we use the mean instead of the sum so that
+              the learning rate is less dependent on the batch size
+        """
+        # start-snippet-2
+        # y.shape[0] is (symbolically) the number of rows in y, i.e.,
+        # number of examples (call it n) in the minibatch
+        # T.arange(y.shape[0]) is a symbolic vector which will contain
+        # [0,1,2,... n-1] T.log(self.p_y_given_x) is a matrix of
+        # Log-Probabilities (call it LP) with one row per example and
+        # one column per class LP[T.arange(y.shape[0]),y] is a vector
+        # v containing [LP[0,y[0]], LP[1,y[1]], LP[2,y[2]], ...,
+        # LP[n-1,y[n-1]]] and T.mean(LP[T.arange(y.shape[0]),y]) is
+        # the mean (across minibatch examples) of the elements in v,
+        # i.e., the mean log-likelihood across the minibatch.
+        return -T.mean(T.log(self.p_y_given_x)[T.arange(y.shape[0]), y])
+        # end-snippet-2
+
+    def errors(self, y):
+        """Return a float representing the number of errors in the minibatch
+        over the total number of examples of the minibatch ; zero one
+        loss over the size of the minibatch
+
+        :type y: theano.tensor.TensorType
+        :param y: corresponds to a vector that gives for each example the
+                  correct label
+        """
+
+        # check if y has same dimension of y_pred
+        if y.ndim != self.y_pred.ndim:
+            raise TypeError(
+                'y should have the same shape as self.y_pred',
+                ('y', y.type, 'y_pred', self.y_pred.type)
+            )
+        # check if y is of the correct datatype
+        if y.dtype.startswith('int'):
+            # the T.neq operator returns a vector of 0s and 1s, where 1
+            # represents a mistake in prediction
+            return T.mean(T.neq(self.y_pred, y))
+        else:
+            raise NotImplementedError()
